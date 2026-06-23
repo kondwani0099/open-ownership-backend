@@ -8,19 +8,15 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from bson import ObjectId
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_users_collection
-from app.models.user import (
-    UserResponse,
-    UserCreate,
-    LoginRequest,
-    TokenResponse,
-)
+from app.database import get_db
+from app.models.user import User, UserResponse, UserCreate, LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -57,6 +53,7 @@ def decode_token(token: str) -> dict:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """FastAPI dependency: extracts and validates the current user from JWT."""
     try:
@@ -67,18 +64,12 @@ async def get_current_user(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    collection = get_users_collection()
-    doc = await collection.find_one({"email": email})
-    if doc is None:
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return UserResponse(
-        id=str(doc["_id"]),
-        email=doc["email"],
-        role=doc["role"],
-        name=doc["name"],
-        created_at=doc.get("created_at", datetime.utcnow()),
-    )
+    return UserResponse.model_validate(user)
 
 
 def require_role(*allowed_roles: str):
@@ -96,23 +87,16 @@ def require_role(*allowed_roles: str):
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate and return a JWT."""
-    collection = get_users_collection()
-    doc = await collection.find_one({"email": body.email})
-    if doc is None or not verify_password(body.password, doc["password_hash"]):
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    user = UserResponse(
-        id=str(doc["_id"]),
-        email=doc["email"],
-        role=doc["role"],
-        name=doc["name"],
-        created_at=doc.get("created_at", datetime.utcnow()),
-    )
-
-    token = create_access_token({"sub": user.email, "role": user.role})
-    return TokenResponse(access_token=token, user=user)
+    user_resp = UserResponse.model_validate(user)
+    token = create_access_token({"sub": user_resp.email, "role": user_resp.role})
+    return TokenResponse(access_token=token, user=user_resp)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -122,36 +106,25 @@ async def me(user: UserResponse = Depends(get_current_user)):
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(body: UserCreate):
+async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user and return a JWT."""
-    collection = get_users_collection()
-
-    # Check if email already exists
-    existing = await collection.find_one({"email": body.email})
-    if existing:
+    result = await db.execute(select(User).where(User.email == body.email))
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    # Validate role
     if body.role not in ("applicant", "reviewer"):
         raise HTTPException(status_code=400, detail="Role must be 'applicant' or 'reviewer'")
 
-    now = datetime.now(timezone.utc)
-    doc = {
-        "email": body.email,
-        "password_hash": hash_password(body.password),
-        "role": body.role,
-        "name": body.name,
-        "created_at": now,
-    }
-    result = await collection.insert_one(doc)
-
-    user = UserResponse(
-        id=str(result.inserted_id),
+    user = User(
         email=body.email,
+        password_hash=hash_password(body.password),
         role=body.role,
         name=body.name,
-        created_at=now,
     )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
-    token = create_access_token({"sub": user.email, "role": user.role})
-    return TokenResponse(access_token=token, user=user)
+    user_resp = UserResponse.model_validate(user)
+    token = create_access_token({"sub": user_resp.email, "role": user_resp.role})
+    return TokenResponse(access_token=token, user=user_resp)

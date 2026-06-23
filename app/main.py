@@ -11,22 +11,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.database import create_indexes
-from app.routers import auth, applications
+from app.database import create_tables
+from app.routers import auth, applications, notifications
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logging.getLogger("pymongo").setLevel(logging.WARNING)
-logging.getLogger("motor").setLevel(logging.WARNING)
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting up — creating indexes...")
-    await create_indexes()
-    logger.info("Indexes ready.")
+    logger.info("Starting up — creating tables...")
+    await create_tables()
+    logger.info("Tables ready.")
     yield
     logger.info("Shutting down.")
 
@@ -51,6 +49,7 @@ app.add_middleware(
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(applications.router)
+app.include_router(notifications.router)
 
 
 # ── Health check ───────────────────────────────────────────────────────────────

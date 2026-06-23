@@ -1,40 +1,39 @@
 """
-User model — Pydantic schemas and DB helpers.
-
-Roles: "applicant" | "reviewer"
+User model — SQLAlchemy ORM + Pydantic schemas.
 """
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel
+from sqlalchemy import String, DateTime, func
+from sqlalchemy.orm import Mapped, mapped_column
+from app.database import Base
 
 
-class UserInDB(BaseModel):
-    """Full user document as stored in MongoDB."""
-    id: Optional[str] = Field(None, alias="_id")
-    email: str
-    password_hash: str
-    role: str  # "applicant" | "reviewer"
-    name: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+class User(Base):
+    __tablename__ = "users"
 
-    class Config:
-        populate_by_name = True
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserResponse(BaseModel):
-    """Public user representation (never exposes password)."""
-    id: str
+    id: int
     email: str
     role: str
     name: str
     created_at: datetime
+    model_config = {"from_attributes": True}
 
 
 class UserCreate(BaseModel):
     email: str
     password: str
-    role: str  # "applicant" | "reviewer"
+    role: str
     name: str
 
 

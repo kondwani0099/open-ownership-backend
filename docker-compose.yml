@@ -1,35 +1,35 @@
 version: '3.8'
 
 services:
-  mongodb:
-    image: mongo:7.0
-    container_name: oo_mongo
+  postgres:
+    image: postgres:16
+    container_name: oo_postgres
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: open_ownership
     volumes:
-      - mongodb_data:/data/db
+      - pgdata:/var/lib/postgresql/data
     ports:
-      - "27017:27017"
+      - "5432:5432"
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
 
   backend:
     build: .
     container_name: oo_backend
     environment:
-      MONGO_URI: "mongodb://root:example@mongodb:27017"
-      DB_NAME: "open_ownership"
-      JWT_SECRET: "change-this-in-production-use-a-long-random-string"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/open_ownership"
+      JWT_SECRET: "change-this-in-production"
     ports:
       - "8000:8000"
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 volumes:
-  mongodb_data:
+  pgdata:

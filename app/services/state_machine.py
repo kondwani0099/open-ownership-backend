@@ -5,7 +5,7 @@ Every transition is checked centrally here so that both
 the API layer and tests can rely on a single source of truth.
 """
 
-from app.models.application import LEGAL_TRANSITIONS, ApplicationInDB
+from app.models.application import LEGAL_TRANSITIONS
 
 # Transitions that require a comment
 COMMENT_REQUIRED_TRANSITIONS = {
@@ -44,17 +44,11 @@ def transition_requires_comment(current_status: str, target_status: str) -> bool
 
 
 def validate_transition(
-    application: ApplicationInDB,
+    application,  # duck-typed: any object with .status
     target_status: str,
     comment: str = "",
 ) -> None:
-    """
-    Validate a status transition for the given application.
-
-    Raises:
-        IllegalTransitionError if the transition is not allowed.
-        MissingCommentError if a comment is required but missing.
-    """
+    """Validate a status transition (duck-typed — works with any object having .status)."""
     current = application.status
     if not can_transition(current, target_status):
         raise IllegalTransitionError(current, target_status)

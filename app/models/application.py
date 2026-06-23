@@ -1,58 +1,43 @@
 """
-Application model — the core domain object.
-
-Status workflow (state machine):
-    DRAFT → SUBMITTED → UNDER_REVIEW → APPROVED
-                                       → REJECTED
-                        → RETURNED_FOR_CHANGES → DRAFT
+Application model — SQLAlchemy ORM + Pydantic schemas.
 """
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from sqlalchemy import String, Float, Text, DateTime, func
+from sqlalchemy.orm import Mapped, mapped_column
+from app.database import Base
 
-# ── Valid statuses ──────────────────────────────────────────────────────────────
-VALID_STATUSES = [
-    "DRAFT",
-    "SUBMITTED",
-    "UNDER_REVIEW",
-    "APPROVED",
-    "REJECTED",
-    "RETURNED_FOR_CHANGES",
-]
+VALID_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "REJECTED", "RETURNED_FOR_CHANGES"]
 
-# ── Legal transitions (from → {to}) ─────────────────────────────────────────────
 LEGAL_TRANSITIONS: dict[str, set[str]] = {
     "DRAFT":                {"SUBMITTED"},
     "SUBMITTED":            {"UNDER_REVIEW", "RETURNED_FOR_CHANGES"},
     "UNDER_REVIEW":         {"APPROVED", "REJECTED"},
     "RETURNED_FOR_CHANGES": {"DRAFT"},
-    # Terminal states — no outgoing transitions
     "APPROVED":  set(),
     "REJECTED":  set(),
 }
 
 
-class ApplicationInDB(BaseModel):
-    """Full application document as stored in MongoDB."""
-    id: Optional[str] = Field(None, alias="_id")
-    title: str
-    category: str
-    description: str = ""
-    amount: float = 0.0
-    applicant_id: str          # email of the applicant
-    status: str = "DRAFT"
-    reviewer_comment: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    attachment_url: Optional[str] = None
+class Application(Base):
+    __tablename__ = "applications"
 
-    class Config:
-        populate_by_name = True
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+    applicant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="DRAFT")
+    reviewer_comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    attachment_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class ApplicationCreate(BaseModel):
-    """Payload for creating a new application (always starts as DRAFT)."""
     title: str
     category: str
     description: str = ""
@@ -60,7 +45,6 @@ class ApplicationCreate(BaseModel):
 
 
 class ApplicationUpdate(BaseModel):
-    """Payload for editing a DRAFT application."""
     title: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
@@ -68,8 +52,7 @@ class ApplicationUpdate(BaseModel):
 
 
 class ApplicationResponse(BaseModel):
-    """Public application representation."""
-    id: str
+    id: int
     title: str
     category: str
     description: str
@@ -80,6 +63,7 @@ class ApplicationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     attachment_url: Optional[str] = None
+    model_config = {"from_attributes": True}
 
 
 class ApplicationListResponse(BaseModel):
@@ -88,6 +72,18 @@ class ApplicationListResponse(BaseModel):
 
 
 class TransitionRequest(BaseModel):
-    """Payload for a status transition (submit / review / return)."""
-    action: str  # "submit" | "review" | "approve" | "reject" | "return"
+    action: str
     comment: str = ""
+
+
+class ApplicationInDB(BaseModel):
+    """Lightweight model used by tests — duck-typed with .status attribute."""
+    id: str = "fake-id"
+    title: str = ""
+    category: str = ""
+    description: str = ""
+    amount: float = 0.0
+    applicant_id: str = "test@test.com"
+    status: str = "DRAFT"
+    reviewer_comment: str = ""
+    attachment_url: Optional[str] = None

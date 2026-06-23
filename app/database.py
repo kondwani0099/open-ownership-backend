@@ -1,17 +1,14 @@
 """
-MongoDB connection layer for the Submission & Approval Workflow.
-
-Uses Motor (async) for FastAPI compatibility.
-Collections are lazy-loaded on the shared client.
+PostgreSQL connection layer using SQLAlchemy async + asyncpg.
 """
 
 import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase
 
-# Load .env from project root
 load_dotenv()
 env_path = Path(__file__).resolve().parent.parent / '.env'
 if env_path.exists():
@@ -19,56 +16,27 @@ if env_path.exists():
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:example@localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "open_ownership")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/open_ownership")
 
-_client: AsyncIOMotorClient | None = None
-
-
-def _get_client() -> AsyncIOMotorClient:
-    global _client
-    if _client is None:
-        uri = MONGO_URI
-        use_tls = "mongodb+srv://" in uri
-        kwargs = {
-            "serverSelectionTimeoutMS": 30000,
-            "connectTimeoutMS": 30000,
-            "socketTimeoutMS": 30000,
-        }
-        if use_tls:
-            # Append TLS bypass params to URI — fixes Windows + Atlas SSL handshake
-            sep = "&" if "?" in uri else "?"
-            uri = f"{uri}{sep}tls=true&tlsAllowInvalidCertificates=true"
-            kwargs["tls"] = True
-        else:
-            kwargs["tls"] = False
-
-        logger.info("Connecting to MongoDB (tls=%s)...", use_tls)
-        _client = AsyncIOMotorClient(uri, **kwargs)
-    return _client
+engine = create_async_engine(DATABASE_URL, echo=False, pool_size=5, max_overflow=10)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def get_db():
-    """Return the application database."""
-    return _get_client()[DB_NAME]
+class Base(DeclarativeBase):
+    pass
 
 
-def get_users_collection():
-    return get_db()["users"]
+async def get_db() -> AsyncSession:
+    """FastAPI dependency: yields an async DB session."""
+    async with AsyncSessionLocal() as session:
+        yield session
 
 
-def get_applications_collection():
-    return get_db()["applications"]
-
-
-def get_audit_logs_collection():
-    return get_db()["audit_logs"]
-
-
-async def create_indexes():
-    """Create necessary indexes on boot."""
-    db = get_db()
-    await db["users"].create_index("email", unique=True)
-    await db["applications"].create_index("applicant_id")
-    await db["applications"].create_index("status")
-    await db["audit_logs"].create_index("application_id")
+async def create_tables():
+    """Create all tables on startup."""
+    from app.models.user import User  # noqa: F401
+    from app.models.application import Application  # noqa: F401
+    from app.models.audit_log import AuditLog  # noqa: F401
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created/verified.")
