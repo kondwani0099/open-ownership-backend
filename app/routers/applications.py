@@ -30,6 +30,7 @@ from app.models.user import UserResponse
 from app.routers.auth import get_current_user, require_role
 from app.services.state_machine import (
     validate_transition,
+    validate_transition_raw,
     resolve_action,
     IllegalTransitionError,
     MissingCommentError,
@@ -97,7 +98,7 @@ async def _record_audit(
         new_status=new_status,
         comment=comment,
     )
-    await collection.insert_one(entry.model_dump(by_alias=True))
+    await collection.insert_one(entry.model_dump(by_alias=True, exclude={"id"}))
 
 
 # ── Applicant Endpoints ────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ async def update_application(
 async def list_my_applications(
     user: UserResponse = Depends(require_role("applicant")),
     status_filter: Optional[str] = Query(None, alias="status"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """List the authenticated applicant's own applications."""
@@ -194,18 +195,16 @@ async def list_review_queue(
     user: UserResponse = Depends(require_role("reviewer")),
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None, alias="search"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """Reviewer queue: all non-DRAFT applications, optionally filtered by status."""
+    """Reviewer queue: all applications, optionally filtered by status."""
     collection = get_applications_collection()
     query: dict = {}
 
     if status_filter:
         query["status"] = status_filter
-    else:
-        # Default: show SUBMITTED, UNDER_REVIEW, RETURNED_FOR_CHANGES
-        query["status"] = {"$in": ["SUBMITTED", "UNDER_REVIEW", "RETURNED_FOR_CHANGES"]}
+    # When no filter, show ALL applications (includes APPROVED/REJECTED)
 
     if search:
         query["$or"] = [
@@ -266,7 +265,8 @@ async def transition_application(
       - reject and return require a comment.
     """
     doc = await _get_app_or_404(application_id)
-    application = ApplicationInDB(**{**doc, "id": str(doc["_id"])})
+    current_status = doc["status"]
+    doc_applicant_id = doc["applicant_id"]
 
     try:
         target_status = resolve_action(body.action)
@@ -277,18 +277,18 @@ async def transition_application(
     if body.action == "submit":
         if user.role != "applicant":
             raise HTTPException(status_code=403, detail="Only applicants can submit applications")
-        if application.applicant_id != user.email:
+        if doc_applicant_id != user.email:
             raise HTTPException(status_code=403, detail="You can only submit your own applications")
 
     elif body.action in ("review", "approve", "reject", "return"):
         if user.role != "reviewer":
             raise HTTPException(status_code=403, detail="Only reviewers can perform this action")
-        if application.applicant_id == user.email:
+        if doc_applicant_id == user.email:
             raise HTTPException(status_code=403, detail="Reviewers cannot act on their own applications")
 
     # ── Validate transition ─────────────────────────────────────────────────
     try:
-        validate_transition(application, target_status, body.comment)
+        validate_transition_raw(current_status, target_status, body.comment)
     except IllegalTransitionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except MissingCommentError as e:
@@ -313,7 +313,7 @@ async def transition_application(
         application_id=application_id,
         performer_email=user.email,
         performer_role=user.role,
-        old_status=application.status,
+        old_status=current_status,
         new_status=target_status,
         comment=body.comment,
     )

@@ -119,3 +119,39 @@ async def login(body: LoginRequest):
 async def me(user: UserResponse = Depends(get_current_user)):
     """Return the currently authenticated user."""
     return user
+
+
+@router.post("/register", response_model=TokenResponse, status_code=201)
+async def register(body: UserCreate):
+    """Register a new user and return a JWT."""
+    collection = get_users_collection()
+
+    # Check if email already exists
+    existing = await collection.find_one({"email": body.email})
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Validate role
+    if body.role not in ("applicant", "reviewer"):
+        raise HTTPException(status_code=400, detail="Role must be 'applicant' or 'reviewer'")
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "email": body.email,
+        "password_hash": hash_password(body.password),
+        "role": body.role,
+        "name": body.name,
+        "created_at": now,
+    }
+    result = await collection.insert_one(doc)
+
+    user = UserResponse(
+        id=str(result.inserted_id),
+        email=body.email,
+        role=body.role,
+        name=body.name,
+        created_at=now,
+    )
+
+    token = create_access_token({"sub": user.email, "role": user.role})
+    return TokenResponse(access_token=token, user=user)

@@ -62,6 +62,18 @@ def validate_transition(
         raise MissingCommentError(current, target_status)
 
 
+def validate_transition_raw(
+    current_status: str,
+    target_status: str,
+    comment: str = "",
+) -> None:
+    """Same as validate_transition but works with raw status strings (no Pydantic model)."""
+    if not can_transition(current_status, target_status):
+        raise IllegalTransitionError(current_status, target_status)
+    if transition_requires_comment(current_status, target_status) and not comment.strip():
+        raise MissingCommentError(current_status, target_status)
+
+
 # ── Mapping: "action" → target status ──────────────────────────────────────────
 ACTION_TO_STATUS: dict[str, str] = {
     "submit":  "SUBMITTED",

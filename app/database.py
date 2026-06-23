@@ -10,7 +10,6 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
-import certifi
 
 # Load .env from project root
 load_dotenv()
@@ -29,19 +28,23 @@ _client: AsyncIOMotorClient | None = None
 def _get_client() -> AsyncIOMotorClient:
     global _client
     if _client is None:
-        use_tls = "mongodb+srv://" in MONGO_URI or "tls=true" in MONGO_URI.lower()
-        kwargs = {}
+        uri = MONGO_URI
+        use_tls = "mongodb+srv://" in uri
+        kwargs = {
+            "serverSelectionTimeoutMS": 30000,
+            "connectTimeoutMS": 30000,
+            "socketTimeoutMS": 30000,
+        }
         if use_tls:
-            kwargs["tlsCAFile"] = certifi.where()
+            # Append TLS bypass params to URI — fixes Windows + Atlas SSL handshake
+            sep = "&" if "?" in uri else "?"
+            uri = f"{uri}{sep}tls=true&tlsAllowInvalidCertificates=true"
+            kwargs["tls"] = True
         else:
             kwargs["tls"] = False
-        _client = AsyncIOMotorClient(
-            MONGO_URI,
-            serverSelectionTimeoutMS=10000,
-            connectTimeoutMS=30000,
-            socketTimeoutMS=30000,
-            **kwargs,
-        )
+
+        logger.info("Connecting to MongoDB (tls=%s)...", use_tls)
+        _client = AsyncIOMotorClient(uri, **kwargs)
     return _client
 
 
