@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 
 load_dotenv()
@@ -33,10 +34,14 @@ async def get_db() -> AsyncSession:
 
 
 async def create_tables():
-    """Create all tables on startup."""
+    """Create all tables and run migrations on startup."""
     from app.models.user import User  # noqa: F401
     from app.models.application import Application  # noqa: F401
     from app.models.audit_log import AuditLog  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns that may be missing on existing tables
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_notif_read TIMESTAMPTZ")
+        )
     logger.info("Database tables created/verified.")

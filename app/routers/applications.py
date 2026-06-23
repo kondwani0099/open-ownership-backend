@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -181,6 +181,28 @@ async def list_review_queue(
 
 
 # ── Shared Detail Endpoint ─────────────────────────────────────────────────────
+
+@router.delete("/{application_id}")
+async def delete_application(
+    application_id: str,
+    user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an application. Applicant can only delete their own DRAFTs; reviewer can delete any."""
+    app = await _get_app_or_404(application_id, db)
+
+    if user.role == "applicant":
+        if app.applicant_id != user.email:
+            raise HTTPException(status_code=403, detail="You can only delete your own applications")
+        if app.status != "DRAFT":
+            raise HTTPException(status_code=403, detail="Only DRAFT applications can be deleted")
+
+    # Delete associated audit logs first (foreign key constraint)
+    await db.execute(delete(AuditLog).where(AuditLog.application_id == app.id))
+    await db.delete(app)
+    await db.commit()
+    return {"status": "deleted", "id": app.id}
+
 
 @router.get("/{application_id}", response_model=dict)
 async def get_application_detail(
