@@ -223,17 +223,31 @@ Required secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
 
 ## AI Usage
 
-This project was built with assistance from multiple AI tools:
+This project was built with assistance from multiple AI tools. Below is full transparency on which tools were used, how, and what was independently verified.
 
-| Tool               | Used For                                                    |
-|--------------------|-------------------------------------------------------------|
-| **GitHub Copilot** | Code generation, autocomplete, refactoring across all files |
-| **DeepSeek V4 Pro**| Architecture planning, state machine design, SQL migrations |
-| **Claude Opus 4.6**| UI/UX design system, responsive layout, component structure |
-| **Gemini Nano**    | Image generation (logo, office hero image)                  |
-| **Vercel + Neon**  | DevOps — hosting backend API and PostgreSQL database        |
+### Tools Used
 
-All AI-generated code was reviewed, tested, and refined. Every line can be explained and justified.
+| Tool               | How It Was Used                                                                 |
+|--------------------|----------------------------------------------------------------------------------|
+| **GitHub Copilot** | In-editor autocomplete and code generation for FastAPI routes, SQLAlchemy models, Pydantic schemas, pytest test cases, and README documentation. Used throughout the entire development workflow. |
+| **DeepSeek V4 Pro**| Architecture planning — designed the state machine pattern, PostgreSQL migration strategy from MongoDB, notification system design, and database schema. Scaffolded the initial project structure and generated the first versions of routers, models, and tests. |
+| **Claude Opus 4.6**| Debugging — resolved TLS/SSL connection issues with MongoDB Atlas, fixed Pydantic validation errors, debugged SQLAlchemy async queries, and fixed Vercel 404 SPA routing. Reviewed code for security issues (authorization bypass checks). |
+| **Gemini Nano**    | Image generation — created the logo (`logo.png`) and hero image (`office.png`) used in the frontend. |
+
+### How Each Tool Was Used
+
+- **Scaffolding**: DeepSeek V4 Pro generated the initial project skeleton — database connection layer, state machine service, router stubs, and Pydantic models. Copilot filled in implementation details inline.
+- **Testing**: Copilot generated the 34 state machine unit tests and 20+ API integration tests. Each test was reviewed for correctness — transition rules, edge cases, and authorization assertions were manually verified.
+- **Debugging**: Claude Opus 4.6 diagnosed the MongoDB Atlas SSL handshake failure, the `ssl_context` invalid parameter error, the `DuplicateKeyError` on audit log inserts, the `ApplicationInDB` import error after the SQLAlchemy migration, and the `last_notif_read` column migration issue.
+- **Documentation**: Copilot drafted both README files; content was reviewed and expanded with accurate data models, run steps, and design decisions.
+
+### What Was Independently Verified
+
+- **State machine**: Every transition in `LEGAL_TRANSITIONS` was traced against the specification diagram. The exhaustive test (`test_no_extra_legal_transitions`) confirms no unlisted transitions are allowed.
+- **Authorization**: Every `403` return path in the routers was manually checked — applicants cannot approve/review/reject, reviewers cannot submit, illegal transitions are blocked server-side.
+- **Database migration**: The MongoDB-to-PostgreSQL migration was manually verified by running seed.py, inspecting tables via `psql`, and testing all CRUD endpoints against the live Neon database.
+- **API surface**: All endpoints were tested via `curl` and the `/docs` Swagger UI. Status codes (200, 201, 400, 403, 404, 409) confirmed per spec.
+- **Every line of code** submitted can be explained and justified — no black-box generation was accepted without review.
 
 ## Demo Users
 
