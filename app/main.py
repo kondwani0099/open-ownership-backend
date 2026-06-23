@@ -40,7 +40,7 @@ app = FastAPI(
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://open-ownership-frontend-git-main-kondwani0099s-projects.vercel.app", "  http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=["https://open-ownership-frontend.vercel.app","https://open-ownership-frontend-git-main-kondwani0099s-projects.vercel.app", "  http://localhost:5173", "http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
